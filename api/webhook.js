@@ -1,16 +1,36 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const { MongoClient } = require('mongodb');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(bodyParser.json());
 
-const uri = "your_mongodb_connection_string";
-const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+const trackedNumber = "+15556283187"; // The tracked WhatsApp number
 
-const trackedNumber = "+15556283187"; // The tracked WhatsApp numberv
+// File to store logs
+const logFile = path.join(__dirname, 'messages.log');
 
-app.post('/api/webhook', async (req, res) => {
+// Verification endpoint to handle the challenge request
+app.get('/api/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token === process.env.VERIFY_TOKEN) {
+    if (mode === 'subscribe') {
+      console.log('WEBHOOK_VERIFIED');
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
+    }
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+app.post('/api/webhook', (req, res) => {
   const data = req.body;
   console.log("Received data:", JSON.stringify(data, null, 2));
 
@@ -37,18 +57,14 @@ app.post('/api/webhook', async (req, res) => {
     }
   }
 
-  // Save the logs to MongoDB
-  try {
-    await client.connect();
-    const database = client.db('whatsapp_logs');
-    const collection = database.collection('messages');
-    const result = await collection.insertMany(messagesLog);
-    console.log(`${result.insertedCount} messages were inserted`);
-  } catch (err) {
-    console.error(err);
-  } finally {
-    await client.close();
-  }
+  // Save the logs to a file
+  fs.appendFile(logFile, JSON.stringify(messagesLog, null, 2) + '\n', (err) => {
+    if (err) {
+      console.error('Failed to write to log file:', err);
+    } else {
+      console.log('Messages logged to file');
+    }
+  });
 
   // Return the log for viewing in the Vercel console
   res.json({
